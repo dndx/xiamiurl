@@ -5,6 +5,10 @@ This code can be used to retrive the trial play link of xiami.com
 
 It can runs on SAE(Sina App Engine) without any change, if you would like to run it on other platform, modification will not be difficult.
 
+Feel free to distribute this code under [The MIT License (MIT) License](http://opensource.org/licenses/mit-license.php). 
+
+This code includes [BeautifulSoup](http://www.crummy.com/software/BeautifulSoup/) from Leonard Richardson, BeautifulSoup is also distributed under The MIT License. 
+
 Supported Link Type
 ========
 http://www.xiami.com/song/1769831786

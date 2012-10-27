@@ -104,6 +104,16 @@ class TestFindAll(TreeTest):
         self.assertSelects(soup('a', limit=1), ["1"])
         self.assertSelects(soup.b(id="foo"), ["3"])
 
+    def test_find_all_with_self_referential_data_structure_does_not_cause_infinite_recursion(self):
+        soup = self.soup("<a></a>")
+        # Create a self-referential list.
+        l = []
+        l.append(l)
+
+        # Without special code in _normalize_search_value, this would cause infinite
+        # recursion.
+        self.assertEqual([], soup.find_all(l))
+
 class TestFindAllBasicNamespaces(TreeTest):
 
     def test_find_by_namespaced_name(self):
@@ -192,6 +202,14 @@ class TestFindAllByAttribute(TreeTest):
         self.assertSelects(tree.find_all(id='first'),
                            ["Matching a.", "Matching b."])
 
+    def test_find_all_by_utf8_attribute_value(self):
+        peace = u"םולש".encode("utf8")
+        data = u'<a title="םולש"></a>'.encode("utf8")
+        soup = self.soup(data)
+        self.assertEqual([soup.a], soup.find_all(title=peace))
+        self.assertEqual([soup.a], soup.find_all(title=peace.decode("utf8")))
+        self.assertEqual([soup.a], soup.find_all(title=[peace, "something else"]))
+
     def test_find_all_by_attribute_dict(self):
         # You can pass in a dictionary as the argument 'attrs'. This
         # lets you search for attributes like 'name' (a fixed argument
@@ -210,18 +228,24 @@ class TestFindAllByAttribute(TreeTest):
         self.assertSelects(tree.find_all(attrs={'name' : 'name1'}),
                            ["Name match."])
 
-        # Passing class='class2' would cause a syntax error.
         self.assertSelects(tree.find_all(attrs={'class' : 'class2'}),
                            ["Class match."])
 
     def test_find_all_by_class(self):
-        # Passing in a string to 'attrs' will search the CSS class.
         tree = self.soup("""
                          <a class="1">Class 1.</a>
                          <a class="2">Class 2.</a>
                          <b class="1">Class 1.</b>
                          <c class="3 4">Class 3 and 4.</c>
                          """)
+
+        # Passing in the class_ keyword argument will search against
+        # the 'class' attribute.
+        self.assertSelects(tree.find_all('a', class_='1'), ['Class 1.'])
+        self.assertSelects(tree.find_all('c', class_='3'), ['Class 3 and 4.'])
+        self.assertSelects(tree.find_all('c', class_='4'), ['Class 3 and 4.'])
+
+        # Passing in a string to 'attrs' will also search the CSS class.
         self.assertSelects(tree.find_all('a', '1'), ['Class 1.'])
         self.assertSelects(tree.find_all(attrs='1'), ['Class 1.', 'Class 1.'])
         self.assertSelects(tree.find_all('c', '3'), ['Class 3 and 4.'])
@@ -230,17 +254,15 @@ class TestFindAllByAttribute(TreeTest):
     def test_find_by_class_when_multiple_classes_present(self):
         tree = self.soup("<gar class='foo bar'>Found it</gar>")
 
-        attrs = { 'class' : re.compile("o") }
-        f = tree.find_all("gar", attrs=attrs)
+        f = tree.find_all("gar", class_=re.compile("o"))
         self.assertSelects(f, ["Found it"])
 
-        f = tree.find_all("gar", re.compile("a"))
+        f = tree.find_all("gar", class_=re.compile("a"))
         self.assertSelects(f, ["Found it"])
 
         # Since the class is not the string "foo bar", but the two
         # strings "foo" and "bar", this will not find anything.
-        attrs = { 'class' : re.compile("o b") }
-        f = tree.find_all("gar", attrs=attrs)
+        f = tree.find_all("gar", class_=re.compile("o b"))
         self.assertSelects(f, [])
 
     def test_find_all_with_non_dictionary_for_attrs_finds_by_class(self):
@@ -265,8 +287,9 @@ class TestFindAllByAttribute(TreeTest):
         self.assertEqual([a, a2], soup.find_all("a", "foo"))
         self.assertEqual([a], soup.find_all("a", "bar"))
 
-        # If you specify the attribute as a string that contains a
+        # If you specify the class as a string that contains a
         # space, only that specific value will be found.
+        self.assertEqual([a], soup.find_all("a", class_="foo bar"))
         self.assertEqual([a], soup.find_all("a", "foo bar"))
         self.assertEqual([], soup.find_all("a", "bar foo"))
 
@@ -821,6 +844,18 @@ class TestTreeModification(SoupTest):
         self.assertEqual(the.next_element, c_tag)
         self.assertEqual(c_tag.previous_element, the)
 
+    def test_append_child_thats_already_at_the_end(self):
+        data = "<a><b></b></a>"
+        soup = self.soup(data)
+        soup.a.append(soup.b)
+        self.assertEqual(data, soup.decode())
+
+    def test_move_tag_to_beginning_of_parent(self):
+        data = "<a><b></b><c></c><d></d></a>"
+        soup = self.soup(data)
+        soup.a.insert(0, soup.d)
+        self.assertEqual("<a><d></d><b></b><c></c></a>", soup.decode())
+
     def test_insert_works_on_empty_element_tag(self):
         # This is a little strange, since most HTML parsers don't allow
         # markup like this to come through. But in general, we don't
@@ -851,20 +886,20 @@ class TestTreeModification(SoupTest):
         self.assertEqual(
             soup.decode(), self.document_for("QUUX<b>bar</b><a>foo</a>BAZ"))
 
-    def test_insert_after_raises_valueerror_if_after_has_no_meaning(self):
+    def test_insert_after_raises_exception_if_after_has_no_meaning(self):
         soup = self.soup("")
         tag = soup.new_tag("a")
         string = soup.new_string("")
         self.assertRaises(ValueError, string.insert_after, tag)
-        self.assertRaises(ValueError, soup.insert_after, tag)
+        self.assertRaises(NotImplementedError, soup.insert_after, tag)
         self.assertRaises(ValueError, tag.insert_after, tag)
 
-    def test_insert_before_raises_valueerror_if_before_has_no_meaning(self):
+    def test_insert_before_raises_notimplementederror_if_before_has_no_meaning(self):
         soup = self.soup("")
         tag = soup.new_tag("a")
         string = soup.new_string("")
         self.assertRaises(ValueError, string.insert_before, tag)
-        self.assertRaises(ValueError, soup.insert_before, tag)
+        self.assertRaises(NotImplementedError, soup.insert_before, tag)
         self.assertRaises(ValueError, tag.insert_before, tag)
 
     def test_replace_with(self):
@@ -881,6 +916,18 @@ class TestTreeModification(SoupTest):
         self.assertEqual(no.parent, soup.p)
         self.assertEqual(no.next_element, "no")
         self.assertEqual(no.next_sibling, " business")
+
+    def test_replace_first_child(self):
+        data = "<a><b></b><c></c></a>"
+        soup = self.soup(data)
+        soup.b.replace_with(soup.c)
+        self.assertEqual("<a><c></c></a>", soup.decode())
+
+    def test_replace_last_child(self):
+        data = "<a><b></b><c></c></a>"
+        soup = self.soup(data)
+        soup.c.replace_with(soup.b)
+        self.assertEqual("<a><b></b></a>", soup.decode())
 
     def test_nested_tag_replace_with(self):
         soup = self.soup(
